@@ -25,7 +25,6 @@
 
 
 #include "base/net/stratum/DaemonClient.h"
-#include "3rdparty/http-parser/http_parser.h"
 #include "3rdparty/rapidjson/document.h"
 #include "3rdparty/rapidjson/error/en.h"
 #include "base/io/json/Json.h"
@@ -104,7 +103,7 @@ int64_t xmrig::DaemonClient::submit(const JobResult &result)
 #   ifdef XMRIG_PROXY_PROJECT
     memcpy(data + 78, result.nonce, 8);
 #   else
-    Cvt::toHex(data + 78, 9, reinterpret_cast<const uint8_t *>(&result.nonce), 4);
+    Cvt::toHex(data + 78, 8, reinterpret_cast<const uint8_t *>(&result.nonce), 4);
 #   endif
 
     using namespace rapidjson;
@@ -151,7 +150,7 @@ void xmrig::DaemonClient::connect(const Pool &pool)
 
 void xmrig::DaemonClient::onHttpData(const HttpData &data)
 {
-    if (data.status != HTTP_STATUS_OK) {
+    if (data.status != 200) {
         return retry();
     }
 
@@ -179,12 +178,30 @@ void xmrig::DaemonClient::onHttpData(const HttpData &data)
                 return send(kGetInfo);
             }
 
-            if (isOutdated(Json::getUint64(doc, kHeight), Json::getString(doc, kHash))) {
-                getBlockTemplate();
+            const uint64_t height = Json::getUint64(doc, kHeight);
+            const String hash = Json::getString(doc, kHash);
+
+            if (isOutdated(height, hash)) {
+                // Multiple /getheight responses can come at once resulting in multiple getBlockTemplate() calls
+                if ((height != m_blocktemplateRequestHeight) || (hash != m_blocktemplateRequestHash)) {
+                    m_blocktemplateRequestHeight = height;
+                    m_blocktemplateRequestHash = hash;
+                    getBlockTemplate();
+                }
             }
         }
-        else if (data.url == kGetInfo && isOutdated(Json::getUint64(doc, kHeight), Json::getString(doc, "top_block_hash"))) {
-            getBlockTemplate();
+        else if (data.url == kGetInfo) {
+            const uint64_t height = Json::getUint64(doc, kHeight);
+            const String hash = Json::getString(doc, "top_block_hash");
+
+            if (isOutdated(height, hash)) {
+                // Multiple /getinfo responses can come at once resulting in multiple getBlockTemplate() calls
+                if ((height != m_blocktemplateRequestHeight) || (hash != m_blocktemplateRequestHash)) {
+                    m_blocktemplateRequestHeight = height;
+                    m_blocktemplateRequestHash = hash;
+                    getBlockTemplate();
+                }
+            }
         }
 
         return;
@@ -227,7 +244,7 @@ bool xmrig::DaemonClient::parseJob(const rapidjson::Value &params, int *code)
     m_blockhashingblob = Json::getString(params, "blockhashing_blob");
     if (m_apiVersion == API_DERO) {
         const uint64_t offset = Json::getUint64(params, "reserved_offset");
-        Cvt::toHex(m_blockhashingblob.data() + offset * 2, kBlobReserveSize * 2 + 1, Cvt::randomBytes(kBlobReserveSize).data(), kBlobReserveSize);
+        Cvt::toHex(m_blockhashingblob.data() + offset * 2, kBlobReserveSize * 2, Cvt::randomBytes(kBlobReserveSize).data(), kBlobReserveSize);
     }
 
     if (blocktemplate.isNull() || !job.setBlob(m_blockhashingblob)) {
