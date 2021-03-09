@@ -142,7 +142,7 @@ private:
     bool m_submitToOrigin           = false;
     Coin m_coin;
     int m_keepAlive                 = 0;
-    Mode m_mode                     = MODE_POOL;
+    Mode m_mode                     = MODE_AUTO_ETH;
     ProxyUrl m_proxy;
     std::bitset<FLAG_MAX> m_flags   = 0;
     String m_fingerprint;
